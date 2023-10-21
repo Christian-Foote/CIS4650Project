@@ -1,0 +1,493 @@
+/*
+    Created By:
+    Drew Mainprize
+    Christian Foote
+    File Name: cminus.cup
+*/
+
+import absyn.*;
+
+/*  
+    Parser code changes the way the parser reports errors 
+    Includes line and column number of the error
+*/
+
+parser code {:
+    public static boolean valid = true;
+
+    public static boolean SHOW_TREE;
+    public static boolean SHOW_TABLE;
+    public static boolean CODE_GEN;
+    public static String fName = "";
+
+    public void report_error(String message, Object info){
+
+        StringBuffer m = new StringBuffer("Error");
+
+        if(info instanceof java_cup.runtime.Symbol){
+            java_cup.runtime.Symbol s = ((java_cup.runtime.Symbol) info);
+
+            if(s.left >= 0){
+                m.append(" in line "+(s.left + 1));
+
+                if(s.right >= 0){
+                    m.append(", column "+ (s.right + 1));
+                }
+            }
+        }
+
+        /* Append the error message */
+        m.append(": " + message);
+
+        valid = false;
+        System.err.println(m);
+    }
+
+
+
+    public void report_fatal_error(String message, Object info){
+        report_error(message, info);
+        System.exit(1);
+    }
+
+:};
+
+/* ------------ Terminals and Non Terminals Section ----------- */
+
+terminal BOOL, ELSE, IF, INT, RETURN, VOID, WHILE;
+terminal PLUS, MINUS, TIMES, DIV;
+terminal LT, LE, GT, GE, EQ, NE;
+terminal TILDE, OR, AND;
+terminal EQEQ, SEMI, COMMA, LB, RB, LSB, RSB, LCB, RCB;
+terminal String ID, NUM, TRUTH;
+
+
+/* Non Terminals */
+non terminal NameTy typeSpec;
+non terminal Var var;
+/* non terminal VarExp varEx; */
+non terminal ExpList stmntList, args, argList;
+non terminal DecList program, declareList;
+non terminal VarDecList params, paramList, localDeclares;
+non terminal Exp selectStmnt, oboolExpr, aboolExpr, uboolExpr, expr;
+non terminal Exp exprStmnt, iterStmnt, returnStmnt, stmnt, compStmnt;
+non terminal Exp call, factor, signedFactor, term, addExpr, simpleExpr;
+non terminal Dec declare, funDeclare, funPrototype;
+non terminal VarDec varDeclare, param;
+/* non terminal OpExp relop, addOp, mulOp; */
+non terminal Integer relop, addOp, mulOp;
+
+
+/* ------------ Precedence Section ----------- */
+
+precedence left IF, RETURN, WHILE, SEMI, LB, LCB, ID, NUM, TRUTH;
+precedence left PLUS, MINUS, OR; /* Not sure if OR, AND, and TILDE needed */
+precedence left TIMES, DIV, AND;
+precedence left ELSE; /* may need left prec on ERROR */
+precedence right EQ, TILDE;
+precedence nonassoc LT, LE, GT, GE, EQEQ, NE;
+
+/* ------------ Grammar Section ------------*/
+
+program     ::= declareList:decL
+                {: RESULT = decL;
+                    /* Might need code in here to print the AST */
+
+                    SemanticAnalyzer analyzer = new SemanticAnalyzer(SHOW_TABLE, RESULT);
+                    
+                    if(CODE_GEN){
+                        String fGen = fName + ".tm";
+                        CodeGenerator gen = new CodeGenerator(fGen, RESULT);
+                    }
+                :}
+            ;
+
+declareList ::= declareList:decL declare:dec
+                {:
+                    DecList list = decL;
+                    while(list.tail != null)
+                        list = list.tail;
+                    list.tail = new DecList(dec, null);
+                    RESULT = list;
+                :}
+            | declare:dec
+                {: 
+                    RESULT = new DecList(dec, null);
+                :}
+            ;
+
+declare     ::= varDeclare:vDec
+                {:
+                    RESULT = vDec;
+                :}
+
+            | funDeclare:fDec
+                {:
+                    RESULT = fDec;
+                :}
+            | funPrototype:fProto
+                {:
+                    RESULT = fProto;
+                :}
+            ;
+
+varDeclare  ::= typeSpec:tSpec ID:i SEMI
+                {:
+                    RESULT = new SimpleDec(ileft, tSpec, i);
+                :}
+            | typeSpec:tSpec ID:i LSB NUM:n RSB SEMI
+                {:
+                    RESULT = new ArrayDec(tSpecleft, tSpec, i, Integer.parseInt(n));
+                :}
+            ;
+
+typeSpec  ::= BOOL:b
+                {: 
+                    RESULT = new NameTy(bleft, NameTy.BOOL);
+                :}
+            | INT:i
+                {: 
+                    RESULT = new NameTy(ileft, NameTy.INT);
+                :}
+            | VOID:v
+                {:
+                    RESULT = new NameTy(vleft, NameTy.VOID);
+                :}
+            ;
+
+funDeclare  ::= typeSpec:tSpec ID:i LB params:p RB compStmnt:c
+                {: 
+                    RESULT = new FunctionDec(tSpecleft, tSpec, i, p, c);
+                :}
+            ;
+
+funPrototype  ::= typeSpec:tSpec ID:i LB params:p RB SEMI
+                {: 
+                    RESULT = new FunctionDec(tSpecleft, tSpec, i, p, new NilExp(pleft));
+                :}
+            ;
+
+params  ::= paramList:pList
+                {:
+                    RESULT = pList;
+                :}
+            | VOID: v
+                {:
+                    RESULT = null;
+                :}
+            ;
+
+paramList  ::= paramList:pList COMMA param:p
+                {: 
+                    VarDecList decList = pList;
+                    while(decList.tail != null){
+                        decList = decList.tail;
+                    }
+
+                    decList.tail = new VarDecList(p, null);
+                    RESULT = pList;
+                :}
+            | param:p
+                {:
+                    RESULT = new VarDecList(p, null);
+                :}
+            ;
+
+param  ::= typeSpec:tSpec ID:i
+                {: 
+                    RESULT = new SimpleDec(ileft, tSpec, i);
+                :}
+            | typeSpec:tSpec ID:i LSB RSB
+                {:
+                    RESULT = new ArrayDec(ileft, tSpec, i, 0);
+                :}
+            ;
+
+compStmnt  ::= LCB:lcb localDeclares:locDec stmntList:sList RCB:rcb
+                {:
+                    RESULT = new CompoundExp(lcbleft, locDec, sList);
+                :}
+            ;
+
+localDeclares  ::= localDeclares:locDec varDeclare:varDec
+                {:
+                    VarDecList decList = locDec;
+                    if (decList == null) {
+                        RESULT = new VarDecList(varDec, null);
+                    } else {
+                        while(decList.tail != null){
+                            decList = decList.tail;
+                        }
+                        decList.tail = new VarDecList(varDec, null);
+                        RESULT = decList;
+                    }
+                    
+                :}
+            | 
+                {: RESULT = null; :}
+            ;
+
+stmntList  ::= stmntList:sList stmnt:s
+                {:
+                    ExpList expList = sList;
+                    if (expList == null) {
+                        RESULT = new ExpList(s, null);
+                    } else {
+                        while(expList.tail != null){
+                            expList = expList.tail;
+                        }
+                        expList.tail = new ExpList(s, null);
+                        RESULT = sList;
+                    }
+                    
+                :}
+            | 
+                {: RESULT = null; :}
+            ;
+
+stmnt  ::= exprStmnt:e
+                {: 
+                    RESULT = e;
+                :}
+            | compStmnt:c
+                {:
+                    RESULT = c;
+                :}
+            | selectStmnt:s
+                {:
+                    RESULT = s;
+                :}
+            | iterStmnt:i
+                {:
+                    RESULT = i;
+                :}
+            | returnStmnt:r
+                {:
+                    RESULT = r;
+                :}
+            ;
+
+exprStmnt  ::= expr:e SEMI
+                {: 
+                    RESULT = e;
+                :}
+            | SEMI:s
+                {:
+                    RESULT = new NilExp(sleft);
+                :}
+            ;
+
+selectStmnt  ::= IF:f LB expr:e RB stmnt:s
+                {:
+                    RESULT = new IfExp(fleft, e, s, new NilExp(sleft));
+                :}
+            | IF:f LB expr:e RB stmnt:s ELSE stmnt:s2
+                {:
+                    RESULT = new IfExp(fleft, e, s, s2);
+                :}
+            ;
+
+iterStmnt  ::= WHILE LB expr:e RB stmnt:s
+                {: 
+                    RESULT = new WhileExp(eleft, e, s);
+                :}
+            ;
+
+returnStmnt  ::= RETURN expr:e SEMI
+                {: 
+                    RESULT = new ReturnExp(eleft, e);
+                :}
+            | RETURN SEMI:s
+                {:
+                    RESULT = new ReturnExp(sleft, null);
+                :}
+            ;
+
+expr  ::= var:v EQ expr:e
+                {: 
+                    RESULT = new AssignExp(vleft, new VarExp(vleft, v), e);
+                :}
+            | oboolExpr:oBool
+                {:
+                    RESULT = oBool;
+                :}
+            ;
+
+var  ::= ID:i
+                {: 
+                    RESULT = new SimpleVar(ileft, i);
+                :}
+            | ID:i LSB expr:e RSB
+                {:
+                    RESULT = new IndexVar(ileft, i, e);
+                :}
+            ;
+
+oboolExpr  ::= oboolExpr:oBool OR aboolExpr:aBool
+                {: 
+                    RESULT = new OpExp(oBoolleft, oBool, OpExp.OR, aBool);
+                :}
+            | aboolExpr:aBool
+                {:
+                    RESULT = aBool;
+                :}
+            ;
+
+aboolExpr  ::= aboolExpr:aBool AND uboolExpr:uBool
+                {: 
+                    RESULT = new OpExp(aBoolleft, aBool, OpExp.AND, uBool);
+                :}
+            | uboolExpr:uBool
+                {:
+                    RESULT = uBool;
+                :}
+            ;
+
+uboolExpr  ::= TILDE uboolExpr:uBool
+                {: 
+                    RESULT = new OpExp(uBoolleft, new NilExp(uBoolleft), OpExp.NOT, uBool);
+                :}
+            | simpleExpr:s
+                {:
+                    RESULT = s;
+                :}
+            ;
+
+simpleExpr  ::= addExpr:a relop:r addExpr:a2
+                {:
+                    RESULT = new OpExp(aleft, a, r, a2);
+                :}
+            | addExpr:a
+                {:
+                    RESULT = a;
+                :}
+            ;
+
+relop  ::= LE
+                {:
+                    RESULT = OpExp.LE;
+                :}
+            | LT
+                {:
+                    RESULT = OpExp.LT;
+                :}
+            | GT
+                {:
+                    RESULT = OpExp.GT;
+                :}
+            | GE
+                {:
+                    RESULT = OpExp.GE;
+                :}
+            | EQEQ
+                {:
+                    RESULT = OpExp.EQEQ;
+                :}
+            | NE
+                {:
+                    RESULT = OpExp.NE;
+                :}
+            ;
+
+addExpr  ::= addExpr:a addOp:add term:t
+                {:
+                    RESULT = new OpExp(aleft, a, add, t);
+                :}
+            | term:t
+                {:
+                    RESULT = t;
+                :}
+            ;
+
+addOp  ::= PLUS
+                {: 
+                    RESULT = OpExp.PLUS;
+                :}
+            | MINUS
+                {:
+                    RESULT = OpExp.MINUS;
+                :}
+            ;
+
+term  ::= term:t mulOp:m signedFactor:s
+                {: 
+                    RESULT = new OpExp(tleft, t, m, s);
+                :}
+            | signedFactor:s
+                {:
+                    RESULT = s;
+                :}
+            ;
+
+mulOp  ::= TIMES
+                {: 
+                    RESULT = OpExp.MUL;
+                :}
+            | DIV
+                {:
+                    RESULT = OpExp.DIV;
+                :}
+            ;
+
+signedFactor  ::= MINUS signedFactor:s
+                {:
+                    RESULT = new OpExp(sleft, new NilExp(sleft), OpExp.MINUS, s);
+                :}
+            | factor:f
+                {:
+                    RESULT = f;
+                :}
+            ;
+
+factor  ::= LB expr:e RB
+                {:
+                    RESULT = e;
+                :}
+            | var:v
+                {:
+                    RESULT = new VarExp(vleft, v);
+                :}
+            | call:c
+                {:
+                    RESULT = c;
+                :}
+            | NUM:n
+                {:
+                    RESULT = new IntExp(nleft, Integer.parseInt(n));
+                :}
+            | TRUTH:t
+                {:
+                    RESULT = new BoolExp(tleft, Boolean.parseBoolean(t));
+                :}
+            ;
+
+call  ::= ID:i LB args:a RB
+                {: 
+                    RESULT = new CallExp(ileft, i, a);
+                :}
+            ;
+
+args  ::= argList:a
+                {: 
+                    RESULT = a;
+                :}
+            | 
+                {:
+                    RESULT = null;
+                :}
+            ;
+
+argList  ::= argList:a COMMA expr:e
+                {:
+                    ExpList eList = a;
+                    while(eList.tail != null){
+                        eList = eList.tail;
+                    }
+                    eList.tail = new ExpList(e, null);
+                    RESULT = a;
+                :}
+            | expr:e
+                {:
+                    RESULT = new ExpList(e, null);
+                :}
+            ;

@@ -1,0 +1,36 @@
+CIS*4650 Checkpoint One
+By: Christian Foote, Drew Mainprize
+
+## Acknowledgement
+
+The sample parser provided for the Tiny programming language
+was used as a starting point for this assignment
+
+## Building and cleaning
+
+- Note that Paths for Jflex, Classpath, and CUP may need to 
+  be altered to match the path of your machine
+
+To build the parser, type 'make' in the current directory
+
+To clean, type 'make clean' in the current directory
+
+## Running
+
+After running make, this compiler can be run with the command:
+The command line option '-a' can be used to print the input files
+abstract syntax tree.
+The command line option '-s' can be used to enable semantic error
+detection and reporting, and display symbol tables.
+The command line option '-c' can be used to enable the compilation
+and output of TM assembly language code
+Multiple flags can be used at once.
+
+java <your classpath> CM TestFiles/<filename>.cm
+java <your classpath> CM -a TestFiles/<filename>.cm
+java <your classpath> CM -s TestFiles/<filename>.cm
+java <your classpath> CM -c TestFiles/<filename>.cm
+
+Test files have been provided, with the name [12345].cm to showcase
+various types of errors.
+Each test file includes a header describing the errors contained.
